@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Environment variables
+.env
+
+# Generated experiments
+data/experiments/*.csv
+data/experiments/*.json
+
+# Exports
+exports/*
+
+# System
+.DS_Store
+.idea/
+.vscode/
