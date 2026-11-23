@@ -2,8 +2,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-
 import csv
+
 from pathlib import Path
 from datetime import datetime
 
@@ -17,7 +17,7 @@ RESULTS_FILE = Path("data/experiments/benchmark_results.csv")
 
 
 def save_benchmark_results(results):
-    """Enregistre les mesures expérimentales dans un CSV."""
+    """Enregistre les résultats des benchmarks dans un CSV."""
 
     RESULTS_FILE.parent.mkdir(parents=True, exist_ok=True)
 
@@ -32,180 +32,227 @@ def save_benchmark_results(results):
         "eval_count",
         "prompt_eval_count",
         "tokens_per_second",
-        "wall_time"
+        "wall_time",
+        "cpu_avg_percent",
+        "cpu_max_percent",
+        "ram_avg_percent",
+        "ram_max_percent",
+        "ram_max_mb"
     ]
 
-    file_exists = RESULTS_FILE.exists() and RESULTS_FILE.stat().st_size > 0
+    file_exists = RESULTS_FILE.exists()
 
     with open(RESULTS_FILE, "a", newline="", encoding="utf-8") as file:
-
         writer = csv.DictWriter(file, fieldnames=columns)
 
         if not file_exists:
             writer.writeheader()
 
         for result in results:
-
-            if not result["success"]:
+            if not result.get("success"):
                 continue
 
-            writer.writerow({
+            resources = result.get("resources", {})
+
+            row = {
                 "timestamp": datetime.now().isoformat(),
                 "model": result["model"],
                 "question": result["question"],
-                "total_duration": result["total_duration"],
-                "generation_duration": result["generation_duration"],
-                "load_duration": result["load_duration"],
-                "ttft": result["ttft"],
-                "eval_count": result["eval_count"],
-                "prompt_eval_count": result["prompt_eval_count"],
-                "tokens_per_second": result["tokens_per_second"],
-                "wall_time": result["wall_time"]
-            })
+                "total_duration": result.get("total_duration", 0),
+                "generation_duration": result.get("generation_duration", 0),
+                "load_duration": result.get("load_duration", 0),
+                "ttft": result.get("ttft"),
+                "eval_count": result.get("eval_count", 0),
+                "prompt_eval_count": result.get("prompt_eval_count", 0),
+                "tokens_per_second": result.get("tokens_per_second", 0),
+                "wall_time": result.get("wall_time", 0),
+                "cpu_avg_percent": resources.get("cpu_avg_percent", 0),
+                "cpu_max_percent": resources.get("cpu_max_percent", 0),
+                "ram_avg_percent": resources.get("ram_avg_percent", 0),
+                "ram_max_percent": resources.get("ram_max_percent", 0),
+                "ram_max_mb": resources.get("ram_max_mb", 0)
+            }
+
+            writer.writerow(row)
 
 
 def display_benchmark_results(results):
-    """Affiche les réponses et les mesures expérimentales."""
+    """Affiche les réponses, les performances et les ressources."""
 
     successful_results = [
-        result for result in results if result["success"]
+        result for result in results
+        if result.get("success")
     ]
 
     failed_results = [
-        result for result in results if not result["success"]
+        result for result in results
+        if not result.get("success")
     ]
 
-    if failed_results:
-        st.warning("Certains modèles n'ont pas terminé leur génération.")
-
-        for result in failed_results:
-            st.error(
-                f"{result['model']} : {result['error']}"
-            )
+    for result in failed_results:
+        st.error(
+            f"Erreur avec {result['model']} : "
+            f"{result.get('error', 'Erreur inconnue')}"
+        )
 
     if not successful_results:
-        st.error("Aucun résultat exploitable.")
+        st.warning("Aucun benchmark réussi.")
         return
 
-    st.divider()
-    st.subheader("📊 Résultats de la comparaison")
+    st.subheader("Résultats des modèles")
 
-    # Réponses côte à côte
-    columns = st.columns(len(successful_results))
+    col1, col2 = st.columns(2)
 
-    for column, result in zip(columns, successful_results):
+    for index, result in enumerate(successful_results):
+        column = col1 if index == 0 else col2
 
         with column:
-            st.markdown(f"### 🤖 {result['model']}")
-            st.markdown(result["response"])
+            st.markdown(f"### {result['model']}")
+            st.write(result["response"])
 
-    # Tableau comparatif
-    st.divider()
-    st.subheader("📈 Indicateurs de performance")
+    st.subheader("Métriques de performance")
 
-    table_data = format_benchmark_results(successful_results)
-
-    df = pd.DataFrame(table_data)
+    performance_df = pd.DataFrame(
+        format_benchmark_results(successful_results)
+    )
 
     st.dataframe(
-        df,
+        performance_df,
         use_container_width=True,
         hide_index=True
     )
 
-    # Graphiques
-    st.subheader("Visualisation des performances")
+    st.subheader("Comparaison des performances")
 
-    chart_col1, chart_col2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
-    with chart_col1:
-
+    with col1:
         fig_time = px.bar(
-            df,
+            performance_df,
             x="Modèle",
             y="Temps total (s)",
-            title="Temps total de réponse",
-            text_auto=".2f"
+            title="Temps total de réponse"
         )
 
         st.plotly_chart(fig_time, use_container_width=True)
 
-    with chart_col2:
-
+    with col2:
         fig_speed = px.bar(
-            df,
+            performance_df,
             x="Modèle",
-            y="Vitesse (tokens/s)",
-            title="Vitesse de génération",
-            text_auto=".2f"
+            y="Tokens/seconde",
+            title="Vitesse de génération"
         )
 
         st.plotly_chart(fig_speed, use_container_width=True)
 
-    # Export des résultats
+    # Monitoring CPU et RAM
+    st.subheader("Consommation des ressources")
+
+    resource_rows = []
+
+    for result in successful_results:
+        resources = result.get("resources", {})
+
+        resource_rows.append({
+            "Modèle": result["model"],
+            "CPU moyen (%)": resources.get("cpu_avg_percent", 0),
+            "CPU maximum (%)": resources.get("cpu_max_percent", 0),
+            "RAM moyenne (%)": resources.get("ram_avg_percent", 0),
+            "RAM maximum (%)": resources.get("ram_max_percent", 0),
+            "RAM maximale (MB)": resources.get("ram_max_mb", 0)
+        })
+
+    resource_df = pd.DataFrame(resource_rows)
+
+    st.dataframe(
+        resource_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        fig_cpu = px.bar(
+            resource_df,
+            x="Modèle",
+            y="CPU moyen (%)",
+            title="CPU moyen consommé"
+        )
+
+        st.plotly_chart(fig_cpu, use_container_width=True)
+
+    with col2:
+        fig_ram = px.bar(
+            resource_df,
+            x="Modèle",
+            y="RAM maximale (MB)",
+            title="RAM maximale utilisée"
+        )
+
+        st.plotly_chart(fig_ram, use_container_width=True)
+
+    # Export des résultats affichés
+    csv_data = performance_df.to_csv(index=False).encode("utf-8")
+
     st.download_button(
-        label="📥 Télécharger les résultats CSV",
-        data=df.to_csv(index=False).encode("utf-8"),
-        file_name="llm_benchmark.csv",
+        label="Télécharger les résultats CSV",
+        data=csv_data,
+        file_name="benchmark_results.csv",
         mime="text/csv"
     )
 
 
 def compare_models(available_models, generation_options):
+    """Interface de comparaison de deux modèles Ollama."""
 
-    st.subheader("⚖️ Comparaison de deux modèles LLM")
+    st.header("Comparaison des modèles LLM")
 
     if len(available_models) < 2:
-        st.warning("Au moins deux modèles sont nécessaires.")
+        st.warning(
+            "Il faut au moins deux modèles Ollama installés."
+        )
         return
 
-    # Sélection des modèles
+    default_a = (
+        available_models.index("llama3.2:latest")
+        if "llama3.2:latest" in available_models
+        else 0
+    )
+
+    default_b = (
+        available_models.index("qwen:0.5b")
+        if "qwen:0.5b" in available_models
+        else 1
+    )
+
     col1, col2 = st.columns(2)
 
     with col1:
         model_a = st.selectbox(
             "Premier modèle",
             available_models,
-            index=(
-                available_models.index("llama3.2:latest")
-                if "llama3.2:latest" in available_models else 0
-            ),
-            key="comparison_model_a"
+            index=default_a
         )
 
     with col2:
-        default_b = 1 if len(available_models) > 1 else 0
-
         model_b = st.selectbox(
             "Deuxième modèle",
             available_models,
-            index=default_b,
-            key="comparison_model_b"
+            index=default_b
         )
 
+    question = st.text_area(
+        "Question à envoyer aux deux modèles",
+        placeholder="Saisis ta question ici..."
+    )
+
     if model_a == model_b:
-        st.warning("Sélectionnez deux modèles différents.")
+        st.warning("Sélectionne deux modèles différents.")
         return
 
-    st.divider()
-
-    question = st.text_area(
-        "Question commune aux deux modèles",
-        placeholder="Saisissez votre question...",
-        height=120,
-        key="comparison_question"
-    )
-
-    st.caption(
-        "Les modèles sont exécutés séquentiellement "
-        "avec des paramètres identiques."
-    )
-
-    if st.button(
-        "🚀 Lancer le benchmark",
-        type="primary",
-        use_container_width=True
-    ):
+    if st.button("Lancer le benchmark", type="primary"):
 
         if not question.strip():
             st.warning("Veuillez saisir une question.")
@@ -213,46 +260,23 @@ def compare_models(available_models, generation_options):
 
         results = []
 
-        for model_name in [model_a, model_b]:
+        for model in [model_a, model_b]:
 
-            st.markdown(f"### Exécution : {model_name}")
-
-            with st.spinner(
-                f"Benchmark de {model_name} en cours..."
-            ):
+            with st.spinner(f"Évaluation de {model}..."):
 
                 result = benchmark_model(
-                    model_name=model_name,
+                    model_name=model,
                     question=question,
                     generation_options=generation_options
                 )
 
                 results.append(result)
 
-            if result["success"]:
-                st.success(
-                    f"{model_name} : génération terminée."
-                )
-            else:
-                st.error(
-                    f"{model_name} : {result['error']}"
-                )
-
         save_benchmark_results(results)
 
-        st.session_state["last_comparison"] = {
-            "question": question,
-            "models": [model_a, model_b],
-            "results": results,
-            "options": generation_options
-        }
+        st.session_state["last_comparison"] = results
 
-    # Conserver l'affichage après les reruns Streamlit
-    last_comparison = st.session_state.get("last_comparison")
-
-    if last_comparison:
-
+    if "last_comparison" in st.session_state:
         display_benchmark_results(
-            last_comparison["results"]
+            st.session_state["last_comparison"]
         )
-
