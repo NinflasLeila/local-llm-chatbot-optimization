@@ -1,4 +1,4 @@
-
+from modules.model_comparison import compare_models
 import streamlit as st
 import ollama
 
@@ -24,6 +24,20 @@ st.set_page_config(
 
 st.title("🤖 ENSET Chatbot")
 st.caption("Assistant conversationnel basé sur des LLMs locaux avec Ollama")
+
+st.sidebar.divider()
+
+st.sidebar.header("🧭 Navigation")
+
+app_mode = st.sidebar.radio(
+    "Mode de fonctionnement",
+    [
+        "💬 Conversation",
+        "⚖️ Comparaison des modèles"
+    ],
+    key="app_mode"
+)
+
 
 # ==========================================
 # 2. INITIALISATION
@@ -151,88 +165,104 @@ if conversations:
 else:
     st.sidebar.info("Aucune conversation. Commencez-en une nouvelle.")
 
+
+
 # ==========================================
-# 5. AFFICHAGE DE LA CONVERSATION
+# 5. NAVIGATION ENTRE LES MODES
 # ==========================================
 
-active_conversation = get_active_conversation()
+if app_mode == "⚖️ Comparaison des modèles":
 
-if active_conversation:
-
-    st.subheader(active_conversation["title"])
-
-    for message in active_conversation["messages"]:
-
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    # ======================================
-    # 6. ENVOI D'UN MESSAGE
-    # ======================================
-
-    prompt = st.chat_input("Posez votre question...")
-
-    if prompt:
-
-        if not selected_model:
-            st.error("Aucun modèle Ollama disponible.")
-
-        else:
-            # Ajouter la question
-            add_message("user", prompt)
-
-            with st.chat_message("user"):
-                st.markdown(prompt)
-
-            with st.chat_message("assistant"):
-
-                response_placeholder = st.empty()
-                full_response = ""
-
-                try:
-                    messages = [
-                        {
-                            "role": message["role"],
-                            "content": message["content"]
-                        }
-                        for message in get_active_conversation()["messages"]
-                    ]
-
-                    with st.spinner("Le modèle génère une réponse..."):
-
-                        for response in ollama.chat(
-                            model=selected_model,
-                            messages=messages,
-                            options={
-                                "temperature": temperature,
-                                "top_k": top_k,
-                                "top_p": top_p,
-                                "num_predict": max_tokens
-                            },
-                            stream=True
-                        ):
-
-                            full_response += response.message.content or ""
-
-                            response_placeholder.markdown(
-                                full_response + "▌"
-                            )
-
-                    response_placeholder.markdown(full_response)
-
-                    add_message("assistant", full_response)
-
-                except Exception as error:
-
-                    st.error(
-                        f"Erreur pendant la génération : {error}"
-                    )
-
-            st.rerun()
+    # Mode comparaison
+    compare_models(
+        available_models=available_models,
+        generation_options={
+            "temperature": temperature,
+            "top_k": top_k,
+            "top_p": top_p,
+            "num_predict": max_tokens
+        }
+    )
 
 else:
-    st.info(
-        "👈 Cliquez sur « Nouvelle conversation » "
-        "dans la barre latérale pour commencer."
-    )
+
+    # ======================================
+    # MODE CONVERSATION
+    # ======================================
+
+    active_conversation = get_active_conversation()
+
+    if active_conversation:
+
+        st.subheader(active_conversation["title"])
+
+        for message in active_conversation["messages"]:
+
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        prompt = st.chat_input("Posez votre question...")
+
+        if prompt:
+
+            if not selected_model:
+                st.error("Aucun modèle Ollama disponible.")
+
+            else:
+                add_message("user", prompt)
+
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+
+                with st.chat_message("assistant"):
+
+                    response_placeholder = st.empty()
+                    full_response = ""
+
+                    try:
+
+                        messages = [
+                            {
+                                "role": message["role"],
+                                "content": message["content"]
+                            }
+                            for message in get_active_conversation()["messages"]
+                        ]
+
+                        with st.spinner("Génération en cours..."):
+
+                            for response in ollama.chat(
+                                model=selected_model,
+                                messages=messages,
+                                options={
+                                    "temperature": temperature,
+                                    "top_k": top_k,
+                                    "top_p": top_p,
+                                    "num_predict": max_tokens
+                                },
+                                stream=True
+                            ):
+
+                                full_response += (
+                                    response.message.content or ""
+                                )
+
+                                response_placeholder.markdown(
+                                    full_response + "▌"
+                                )
+
+                        response_placeholder.markdown(full_response)
+
+                        add_message("assistant", full_response)
+
+                    except Exception as error:
+                        st.error(f"Erreur Ollama : {error}")
+
+                st.rerun()
+
+    else:
+        st.info(
+            "👈 Cliquez sur « Nouvelle conversation » "
+            "dans la barre latérale pour commencer."
+        )
 
